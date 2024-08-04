@@ -20,6 +20,18 @@ const Recipients = styled.div`
   flex-basis: 100%;
 `;
 
+const Tooltip = styled.div`
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  padding: 8px 16px;
+  background-color: #666;
+  color: #f0f0f0;
+  border-radius: 24px;
+  display: flex;
+  align-items: center;
+`;
+
 const separator = ', ';
 const ellipsis = '...';
 const ellipsisWidth = getTextWidth({ text: ellipsis });
@@ -28,15 +40,16 @@ function RecipientsDisplay({ recipients }: RecipientsDisplayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [visibleRecipients, setVisibleRecipients] = useState<string[]>([]);
   const [trimmedCount, setTrimmedCount] = useState<number>(0);
-  const [containerWidth, setContainerWidth] = useState(0);
+  const [containerWidth, setContainerWidth] = useState<number>(0);
+  const [tooltipVisible, setTooltipVisible] = useState<boolean>(false);
 
   /**
    * Updates the visible recipients list based on the container width.
    */
-  const updateVisibleRecipients = useCallback(() => {
+  const updateVisibleRecipients = useCallback((): void => {
     if (!(containerRef.current && containerWidth)) return;
     let updatedVisibleRecipients: string[] = [];
-    let totalWidth = 0;
+    let totalWidth: number = 0;
 
     recipients.forEach((recipient, index) => {
       const recipientWidth = getTextWidth({ text: recipient });
@@ -46,7 +59,7 @@ function RecipientsDisplay({ recipients }: RecipientsDisplayProps) {
         if (index !== 0) return;
 
         // Truncate the first recipient if it exceeds the container width
-        const truncatedText = truncateText({
+        const truncatedText: string = truncateText({
           text: recipient,
           maxWidth: containerWidth - totalWidth,
         });
@@ -67,13 +80,13 @@ function RecipientsDisplay({ recipients }: RecipientsDisplayProps) {
     });
 
     // Determine the number of remaining recipients that cannot fit in the container
-    const remainingRecipients =
+    const remainingRecipients: number =
       recipients.length - updatedVisibleRecipients.length;
 
     if (remainingRecipients > 0) {
       setTrimmedCount(remainingRecipients);
 
-      const lastVisibleRecipient =
+      const lastVisibleRecipient: string =
         updatedVisibleRecipients[updatedVisibleRecipients.length - 1];
 
       // If the last visible recipient is the first recipient in the list
@@ -125,7 +138,7 @@ function RecipientsDisplay({ recipients }: RecipientsDisplayProps) {
 
   useEffect(() => {
     // observing container for any width changes
-    const observer = new ResizeObserver(entries => {
+    const observer: ResizeObserver = new ResizeObserver(entries => {
       setContainerWidth(entries[0].contentRect.width);
     });
     if (containerRef.current) {
@@ -141,7 +154,14 @@ function RecipientsDisplay({ recipients }: RecipientsDisplayProps) {
       <Recipients ref={containerRef}>
         {visibleRecipients.join(separator)}
       </Recipients>
-      {trimmedCount > 0 && <RecipientsBadge numTruncated={trimmedCount} />}
+      {trimmedCount > 0 && (
+        <RecipientsBadge
+          numTruncated={trimmedCount}
+          onMouseEnter={() => setTooltipVisible(true)}
+          onMouseLeave={() => setTooltipVisible(false)}
+        />
+      )}
+      {tooltipVisible && <Tooltip>{recipients.join(separator)}</Tooltip>}
     </Container>
   );
 }
