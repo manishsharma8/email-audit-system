@@ -1,28 +1,40 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getTextWidth, truncateText } from '../utils/string';
+import { canFit, getTextWidth, trimToFit, truncateText } from '../utils/string';
+import RecipientsBadge from './RecipientsBadge';
+import styled from 'styled-components';
 
 interface RecipientsDisplayProps {
   recipients: string[];
 }
 
+const Container = styled.div`
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  white-space: normal;
+  word-break: break-all;
+`;
+
+const Recipients = styled.div`
+  flex-basis: 100%;
+`;
+
+const separator = ', ';
 const ellipsis = '...';
 const ellipsisWidth = getTextWidth({ text: ellipsis });
 
-export default function RecipientsDisplay({
-  recipients,
-}: RecipientsDisplayProps) {
+function RecipientsDisplay({ recipients }: RecipientsDisplayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [visibleRecipients, setVisibleRecipients] = useState<string[]>([]);
   const [trimmedCount, setTrimmedCount] = useState<number>(0);
+  const [containerWidth, setContainerWidth] = useState(0);
 
   /**
    * Updates the visible recipients list based on the container width.
    */
   const updateVisibleRecipients = useCallback(() => {
-    if (!containerRef.current) return;
-
-    const containerWidth = containerRef.current.offsetWidth;
-
+    if (!(containerRef.current && containerWidth)) return;
     let updatedVisibleRecipients: string[] = [];
     let totalWidth = 0;
 
@@ -30,17 +42,18 @@ export default function RecipientsDisplay({
       const recipientWidth = getTextWidth({ text: recipient });
 
       // Check if adding this recipient would exceed container width
-      if (totalWidth + recipientWidth > containerWidth) {
+      if (!canFit({ totalWidth, extraWidth: recipientWidth, containerWidth })) {
         if (index !== 0) return;
 
         // Truncate the first recipient if it exceeds the container width
-        updatedVisibleRecipients = [
-          ...updatedVisibleRecipients,
-          truncateText({
-            text: recipient,
-            maxWidth: containerWidth - totalWidth,
-          }),
-        ];
+        const truncatedText = truncateText({
+          text: recipient,
+          maxWidth: containerWidth - totalWidth,
+        });
+
+        updatedVisibleRecipients = [...updatedVisibleRecipients, truncatedText];
+        totalWidth += getTextWidth({ text: truncatedText });
+        return;
       }
 
       // Add the recipient and update the total width
@@ -49,47 +62,88 @@ export default function RecipientsDisplay({
 
       // Add the width of the comma separator if not the last recipient
       if (index < recipients.length - 1) {
-        totalWidth += getTextWidth({ text: ', ' });
+        totalWidth += getTextWidth({ text: separator });
       }
     });
 
-    // If there are more recipients than can fit in the container,
-    // add ellipsis and count
+    // Determine the number of remaining recipients that cannot fit in the container
     const remainingRecipients =
       recipients.length - updatedVisibleRecipients.length;
+
     if (remainingRecipients > 0) {
       setTrimmedCount(remainingRecipients);
 
-      if (updatedVisibleRecipients[0] === recipients[0]) {
-        if (totalWidth + ellipsisWidth < containerWidth) {
+      const lastVisibleRecipient =
+        updatedVisibleRecipients[updatedVisibleRecipients.length - 1];
+
+      // If the last visible recipient is the first recipient in the list
+      if (lastVisibleRecipient === recipients[0]) {
+        setTrimmedCount(remainingRecipients);
+
+        // Check if there is enough space to fit the ellipsis in the remaining width
+        if (canFit({ totalWidth, extraWidth: ellipsisWidth, containerWidth })) {
           updatedVisibleRecipients = [...updatedVisibleRecipients, ellipsis];
         } else {
-          let lastVisibleRecipient =
-            updatedVisibleRecipients[updatedVisibleRecipients.length - 1];
-
-          while (
-            getTextWidth({ text: lastVisibleRecipient }) + ellipsisWidth >
-            containerWidth
-          ) {
-            lastVisibleRecipient = lastVisibleRecipient.slice(0, -1);
-          }
-
+          // Trim the last visible recipient to fit with the ellipsis
           updatedVisibleRecipients[updatedVisibleRecipients.length - 1] =
-            lastVisibleRecipient + ellipsis;
+            trimToFit({
+              text: lastVisibleRecipient,
+              suffix: ellipsis,
+              containerWidth,
+            });
+        }
+      } else {
+        if (
+          // If not enough space, remove the last recipient and add ellipsis
+          !(
+            updatedVisibleRecipients[0] === lastVisibleRecipient ||
+            canFit({
+              totalWidth,
+              extraWidth: getTextWidth({ text: separator + ellipsis }),
+              containerWidth,
+            })
+          )
+        ) {
+          updatedVisibleRecipients.pop();
+          updatedVisibleRecipients = [...updatedVisibleRecipients, ellipsis];
+          setTrimmedCount(prev => prev + 1);
+        } else {
+          // If there's space to add ellipsis, add them
+          if (totalWidth + ellipsisWidth < containerWidth) {
+            updatedVisibleRecipients = [...updatedVisibleRecipients, ellipsis];
+          }
         }
       }
     }
 
     setVisibleRecipients(updatedVisibleRecipients);
-  }, [containerRef.current]);
+  }, [recipients, containerWidth]);
 
   useEffect(() => {
     updateVisibleRecipients();
+  }, [updateVisibleRecipients]);
+
+  useEffect(() => {
+    // observing container for any width changes
+    const observer = new ResizeObserver(entries => {
+      setContainerWidth(entries[0].contentRect.width);
+    });
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
+    }
+    return () => {
+      containerRef.current && observer.unobserve(containerRef.current);
+    };
   }, []);
 
   return (
-    <div style={{ width: '100%' }} ref={containerRef}>
-      {visibleRecipients.join(', ')}
-    </div>
+    <Container>
+      <Recipients ref={containerRef}>
+        {visibleRecipients.join(separator)}
+      </Recipients>
+      {trimmedCount > 0 && <RecipientsBadge numTruncated={trimmedCount} />}
+    </Container>
   );
 }
+
+export default RecipientsDisplay;
